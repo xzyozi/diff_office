@@ -112,24 +112,6 @@ class WinMergeStyleApp:
         if path:
             var.set(path)
 
-    def insert_line(self, text_widget, line_num, content, tag=None):
-        """テキストウィジェットに行番号付きでテキストを挿入する"""
-        text_widget.config(state=tk.NORMAL)
-        line_prefix = f"{line_num:4d} | " if line_num else "     | "
-        
-        # 行番号部分の挿入
-        text_widget.insert(tk.END, line_prefix)
-        # 本文の挿入
-        start_idx = text_widget.index(tk.END)
-        text_widget.insert(tk.END, content + "\n")
-        end_idx = text_widget.index(tk.END)
-        
-        # タグ（背景色）の適用
-        if tag:
-            text_widget.tag_add(tag, f"{start_idx} -1c", f"{end_idx} -1c")
-            
-        text_widget.config(state=tk.DISABLED)
-
     def run_diff(self):
         p1, p2 = self.path1.get(), self.path2.get()
         if not p1 or not p2:
@@ -150,13 +132,11 @@ class WinMergeStyleApp:
         paras1 = parser1.paragraphs
         paras2 = parser2.paragraphs
 
-        # テキストエリアのクリア
+        # テキストエリアのクリアと編集許可
         self.text_left.config(state=tk.NORMAL)
         self.text_right.config(state=tk.NORMAL)
         self.text_left.delete(1.0, tk.END)
         self.text_right.delete(1.0, tk.END)
-        self.text_left.config(state=tk.DISABLED)
-        self.text_right.config(state=tk.DISABLED)
 
         # 差分比較の実行
         matcher = difflib.SequenceMatcher(None, paras1, paras2)
@@ -166,46 +146,66 @@ class WinMergeStyleApp:
         l_line = 1
         r_line = 1
 
-        # WinMergeのような左右の行位置合わせ処理
+        # 【改善】セクション（ブロック）単位でまとめて文字列を構築し、一括描画する
         for tag, i1, i2, j1, j2 in opcodes:
             p1_sub = paras1[i1:i2]
             p2_sub = paras2[j1:j2]
             
-            # ブロックの最大行数を取得（左右を揃えるため）
             max_len = max(len(p1_sub), len(p2_sub))
+            
+            # メモリ上でこのセクションのテキストを組み立てる
+            left_block_text = ""
+            right_block_text = ""
+
+            # 挿入前の開始位置（インデックス）を記憶
+            left_start_idx = self.text_left.index(tk.END)
+            right_start_idx = self.text_right.index(tk.END)
 
             for k in range(max_len):
                 val1 = p1_sub[k] if k < len(p1_sub) else ""
                 val2 = p2_sub[k] if k < len(p2_sub) else ""
 
-                if tag == 'equal':
-                    self.insert_line(self.text_left, l_line, val1)
-                    self.insert_line(self.text_right, r_line, val2)
-                    l_line += 1
-                    r_line += 1
-                
-                elif tag == 'replace':
-                    self.insert_line(self.text_left, l_line if k < len(p1_sub) else None, val1, "replace" if k < len(p1_sub) else "empty")
-                    self.insert_line(self.text_right, r_line if k < len(p2_sub) else None, val2, "replace" if k < len(p2_sub) else "empty")
-                    if k < len(p1_sub): l_line += 1
-                    if k < len(p2_sub): r_line += 1
-                    diff_count += 1
-                    
-                elif tag == 'delete':
-                    self.insert_line(self.text_left, l_line, val1, "delete")
-                    self.insert_line(self.text_right, None, "", "empty") # 右側は空行で位置合わせ
-                    l_line += 1
-                    diff_count += 1
-                    
-                elif tag == 'insert':
-                    self.insert_line(self.text_left, None, "", "empty")  # 左側は空行で位置合わせ
-                    self.insert_line(self.text_right, r_line, val2, "insert")
-                    r_line += 1
-                    diff_count += 1
+                # 行番号のプレフィックス生成
+                prefix1 = f"{l_line:4d} | " if k < len(p1_sub) and tag in ('equal', 'replace', 'delete') else "     | "
+                prefix2 = f"{r_line:4d} | " if k < len(p2_sub) and tag in ('equal', 'replace', 'insert') else "     | "
+
+                left_block_text += prefix1 + val1 + "\n"
+                right_block_text += prefix2 + val2 + "\n"
+
+                # 実際の文書の行番号のみインクリメント
+                if k < len(p1_sub) and tag in ('equal', 'replace', 'delete'): l_line += 1
+                if k < len(p2_sub) and tag in ('equal', 'replace', 'insert'): r_line += 1
+
+            # ウィジェットにセクションブロックを一括挿入
+            self.text_left.insert(tk.END, left_block_text)
+            self.text_right.insert(tk.END, right_block_text)
+
+            # 挿入後の終了位置（インデックス）を取得
+            # (最後の改行文字の手前までを指定)
+            left_end_idx = self.text_left.index(f"{tk.END}-1c")
+            right_end_idx = self.text_right.index(f"{tk.END}-1c")
+
+            # セクション全体に対して、タグ（色）を一括適用
+            if tag == 'replace':
+                self.text_left.tag_add("replace", left_start_idx, left_end_idx)
+                self.text_right.tag_add("replace", right_start_idx, right_end_idx)
+                diff_count += 1
+            elif tag == 'delete':
+                self.text_left.tag_add("delete", left_start_idx, left_end_idx)
+                self.text_right.tag_add("empty", right_start_idx, right_end_idx)
+                diff_count += 1
+            elif tag == 'insert':
+                self.text_left.tag_add("empty", left_start_idx, left_end_idx)
+                self.text_right.tag_add("insert", right_start_idx, right_end_idx)
+                diff_count += 1
+
+        # 描画完了後、読み取り専用に戻す
+        self.text_left.config(state=tk.DISABLED)
+        self.text_right.config(state=tk.DISABLED)
 
         if diff_count == 0:
             messagebox.showinfo("比較完了", "段落テキストに差分は見つかりませんでした。")
-
+            
 if __name__ == "__main__":
     root = tk.Tk()
     app = WinMergeStyleApp(root)
