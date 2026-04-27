@@ -3,7 +3,10 @@ from tkinter import filedialog, messagebox, ttk
 import zipfile
 import xml.etree.ElementTree as ET
 import os
-import hashlib # マクロのハッシュ比較用に追加
+import hashlib
+import webbrowser
+
+import html_report
 
 class ExcelParser:
     """標準ライブラリのみを使用してxlsx/xlsmを解析するクラス"""
@@ -15,7 +18,7 @@ class ExcelParser:
     def __init__(self, filepath):
         self.filepath = filepath
         self.shared_strings = []
-        self.sheet_mapping = {} # {シート名: 内部XMLパス}
+        self.sheet_mapping = {}
         self.has_macro = False
         self.macro_hash = None
         self.valid = False
@@ -63,7 +66,6 @@ class ExcelParser:
             if 'xl/vbaProject.bin' in z.namelist():
                 self.has_macro = True
                 with z.open('xl/vbaProject.bin') as f:
-                    # バイナリデータを読み込んでMD5ハッシュを取得
                     self.macro_hash = hashlib.md5(f.read()).hexdigest()
 
     def get_sheet_data(self, sheet_name):
@@ -99,7 +101,7 @@ class ExcelParser:
 
 class DiffApp:
     def __init__(self, root):
-        root.title("Excel XML Diff Tool (.xlsx / .xlsm)")
+        root.title("Excel XML Diff Tool (with HTML Report)")
         root.geometry("900x500")
 
         frame = tk.Frame(root)
@@ -113,7 +115,7 @@ class DiffApp:
         tk.Entry(frame, textvariable=self.path2, width=70).grid(row=1, column=0, padx=5, pady=5)
         tk.Button(frame, text="ファイル2を選択", command=lambda: self.select_file(self.path2)).grid(row=1, column=1)
 
-        tk.Button(root, text="差分を抽出", command=self.run_diff, bg="#e1e1e1", width=20).pack(pady=5)
+        tk.Button(root, text="差分を抽出 & ブラウザで開く", command=self.run_diff, bg="#e1e1e1", width=30).pack(pady=5)
 
         columns = ("Sheet", "Cell", "File1_Val", "File2_Val", "File1_Fml", "File2_Fml")
         self.tree = ttk.Treeview(root, columns=columns, show='headings')
@@ -129,7 +131,6 @@ class DiffApp:
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
     def select_file(self, var):
-        # xlsx に加えて xlsm も選択可能に変更
         path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xlsm")])
         if path:
             var.set(path)
@@ -156,14 +157,7 @@ class DiffApp:
         # --- マクロの変更検知チェック ---
         if parser1.has_macro and parser2.has_macro:
             if parser1.macro_hash != parser2.macro_hash:
-                messagebox.showwarning(
-                    "マクロ変更検知", 
-                    "注意: 両ファイル間でマクロ本体 (vbaProject.bin) に変更が加えられています。\n\n"
-                    "※このツールではシート上のデータ差分のみを表示します。"
-                )
-        elif parser1.has_macro != parser2.has_macro:
-            messagebox.showinfo("マクロ検知", "一方のファイルにのみマクロが存在します。")
-        # ------------------------------
+                messagebox.showwarning("マクロ変更検知", "注意: 両ファイル間でマクロ本体に変更が加えられています。")
 
         sheets1 = set(parser1.sheet_mapping.keys())
         sheets2 = set(parser2.sheet_mapping.keys())
@@ -179,23 +173,54 @@ class DiffApp:
             return
 
         diff_count = 0
+        
+        # HTML用のデータを格納する辞書
+        report_data = {} 
 
         for sheet_name in sorted(list(common_sheets)):
             data1 = parser1.get_sheet_data(sheet_name)
             data2 = parser2.get_sheet_data(sheet_name)
 
             all_cells = sorted(list(set(data1.keys()) | set(data2.keys())))
+            sheet_diffs = []
 
             for addr in all_cells:
                 c1 = data1.get(addr, {'val': '', 'fml': ''})
                 c2 = data2.get(addr, {'val': '', 'fml': ''})
 
                 if c1['val'] != c2['val'] or c1['fml'] != c2['fml']:
+                    # GUIのツリービューへ追加
                     self.tree.insert("", tk.END, values=(sheet_name, addr, c1['val'], c2['val'], c1['fml'], c2['fml']))
                     diff_count += 1
+                    
+                    # HTMLレポート用データ配列へ追加
+                    sheet_diffs.append({
+                        "cell": addr,
+                        "v1": c1['val'], "v2": c2['val'],
+                        "f1": c1['fml'], "f2": c2['fml']
+                    })
+            
+            if sheet_diffs:
+                report_data[sheet_name] = sheet_diffs
 
         if diff_count == 0:
-            messagebox.showinfo("比較完了", "シート上のデータ（値と数式）に差分は見つかりませんでした。\n※マクロや図形・書式のみが変更されている可能性があります。")
+            messagebox.showinfo("比較完了", "シート上のデータに差分は見つかりませんでした。")
+        else:
+            # --- HTMLレポートの生成とブラウザ表示処理 ---
+            # 実行ファイルのディレクトリ (prt/) から一つ上の output/ を指定
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            output_dir = os.path.join(base_dir, "..", "output")
+            
+            try:
+                # html_report.py の関数を呼び出し
+                html_path = html_report.generate_html_report(p1, p2, report_data, output_dir)
+                
+                # 絶対パスを file:// URIに変換してブラウザで開く
+                file_uri = f"file:///{os.path.abspath(html_path).replace(os.sep, '/')}"
+                webbrowser.open(file_uri)
+                
+            except Exception as e:
+                messagebox.showerror("HTML生成エラー", f"レポートの生成中にエラーが発生しました:\n{e}")
 
 if __name__ == "__main__":
     root = tk.Tk()
