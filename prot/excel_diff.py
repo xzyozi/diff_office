@@ -141,6 +141,11 @@ class DiffApp:
             messagebox.showwarning("警告", "比較する2つのファイルを選択してください。")
             return
 
+        # 追加チェック1: そもそも全く同じファイルパスを選択している場合
+        if os.path.abspath(p1) == os.path.abspath(p2):
+            messagebox.showinfo("確認", "全く同じファイルが選択されています。\n異なるファイルを選択してください。")
+            return
+
         parser1 = ExcelParser(p1)
         parser2 = ExcelParser(p2)
 
@@ -152,16 +157,16 @@ class DiffApp:
         sheets2 = set(parser2.sheet_mapping.keys())
         common_sheets = sheets1 & sheets2
 
-        # エラーハンドリング: 比較対象のシートが1つもない場合
         if not common_sheets:
             error_msg = (
                 "比較可能な同名のシートが存在しません。\n\n"
-                "選択されたファイルが全く異なるか、すべてのシート名が変更されている可能性があります。\n"
                 f"ファイル1のシート: {', '.join(sheets1) if sheets1 else 'なし'}\n"
                 f"ファイル2のシート: {', '.join(sheets2) if sheets2 else 'なし'}"
             )
             messagebox.showerror("比較エラー", error_msg)
             return
+
+        diff_count = 0 # 差分の件数をカウントする変数を追加
 
         # 共通シートごとに差分を抽出
         for sheet_name in sorted(list(common_sheets)):
@@ -177,7 +182,12 @@ class DiffApp:
                 # 値か数式のどちらかに差分があれば表示
                 if c1['val'] != c2['val'] or c1['fml'] != c2['fml']:
                     self.tree.insert("", tk.END, values=(sheet_name, addr, c1['val'], c2['val'], c1['fml'], c2['fml']))
+                    diff_count += 1
 
+        # 追加チェック2: 比較の結果、差分が1件もなかった場合
+        if diff_count == 0:
+            messagebox.showinfo("比較完了", "差分は見つかりませんでした。\nファイルの内容（値と数式）は完全に一致しています。")
+            
 if __name__ == "__main__":
     root = tk.Tk()
     app = DiffApp(root)
