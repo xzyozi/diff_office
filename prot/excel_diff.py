@@ -154,29 +154,36 @@ class DiffApp:
         if not parser1.valid or not parser2.valid:
             return
 
-        # --- マクロの変更検知チェック ---
         if parser1.has_macro and parser2.has_macro:
             if parser1.macro_hash != parser2.macro_hash:
                 messagebox.showwarning("マクロ変更検知", "注意: 両ファイル間でマクロ本体に変更が加えられています。")
 
+        # --- シート構成の比較ロジック ---
         sheets1 = set(parser1.sheet_mapping.keys())
         sheets2 = set(parser2.sheet_mapping.keys())
-        common_sheets = sheets1 & sheets2
+        
+        common_sheets = sheets1 & sheets2      # 両方にあるシート（積集合）
+        deleted_sheets = sheets1 - sheets2     # File1のみにあるシート（差集合）
+        added_sheets = sheets2 - sheets1       # File2のみにあるシート（差集合）
 
+        # 共通シートが1つもない場合はエラー
         if not common_sheets:
-            error_msg = (
-                "比較可能な同名のシートが存在しません。\n\n"
-                f"ファイル1のシート: {', '.join(sheets1) if sheets1 else 'なし'}\n"
-                f"ファイル2のシート: {', '.join(sheets2) if sheets2 else 'なし'}"
-            )
-            messagebox.showerror("比較エラー", error_msg)
+            messagebox.showerror("比較エラー", "比較対象となる共通の同名シートが1つも存在しません。")
             return
 
         diff_count = 0
-        
-        # HTML用のデータを格納する辞書
         report_data = {} 
 
+        # --- 追加・削除されたシートのGUI表示 ---
+        for sheet in sorted(list(deleted_sheets)):
+            self.tree.insert("", tk.END, values=(sheet, "ALL", "[シート削除]", "-", "-", "-"))
+            diff_count += 1
+            
+        for sheet in sorted(list(added_sheets)):
+            self.tree.insert("", tk.END, values=(sheet, "ALL", "-", "[シート追加]", "-", "-"))
+            diff_count += 1
+
+        # --- 共通シートのセル差分抽出 ---
         for sheet_name in sorted(list(common_sheets)):
             data1 = parser1.get_sheet_data(sheet_name)
             data2 = parser2.get_sheet_data(sheet_name)
@@ -189,11 +196,9 @@ class DiffApp:
                 c2 = data2.get(addr, {'val': '', 'fml': ''})
 
                 if c1['val'] != c2['val'] or c1['fml'] != c2['fml']:
-                    # GUIのツリービューへ追加
                     self.tree.insert("", tk.END, values=(sheet_name, addr, c1['val'], c2['val'], c1['fml'], c2['fml']))
                     diff_count += 1
                     
-                    # HTMLレポート用データ配列へ追加
                     sheet_diffs.append({
                         "cell": addr,
                         "v1": c1['val'], "v2": c2['val'],
@@ -204,18 +209,18 @@ class DiffApp:
                 report_data[sheet_name] = sheet_diffs
 
         if diff_count == 0:
-            messagebox.showinfo("比較完了", "シート上のデータに差分は見つかりませんでした。")
+            messagebox.showinfo("比較完了", "シート構成およびデータに差分は見つかりませんでした。")
         else:
-            # --- HTMLレポートの生成とブラウザ表示処理 ---
-            # 実行ファイルのディレクトリ (prt/) から一つ上の output/ を指定
+            # HTMLレポートの生成とブラウザ表示
             base_dir = os.path.dirname(os.path.abspath(__file__))
             output_dir = os.path.join(base_dir, "..", "output")
             
             try:
-                # html_report.py の関数を呼び出し
-                html_path = html_report.generate_html_report(p1, p2, report_data, output_dir)
+                # 修正: added_sheets と deleted_sheets を引数に追加
+                html_path = html_report.generate_html_report(
+                    p1, p2, report_data, added_sheets, deleted_sheets, output_dir
+                )
                 
-                # 絶対パスを file:// URIに変換してブラウザで開く
                 file_uri = f"file:///{os.path.abspath(html_path).replace(os.sep, '/')}"
                 webbrowser.open(file_uri)
                 

@@ -2,20 +2,12 @@ import os
 import html
 from datetime import datetime
 
-def generate_html_report(file1_path, file2_path, diff_data, output_dir):
+def generate_html_report(file1_path, file2_path, diff_data, added_sheets, deleted_sheets, output_dir):
     """
-    差分データから直感的なHTMLレポートを生成する
-    diff_data format:
-    {
-        "Sheet1": [
-            {"cell": "A1", "v1": "old", "v2": "new", "f1": "sum()", "f2": "sum()"}
-        ]
-    }
+    差分データとシート構成の変更から直感的なHTMLレポートを生成する
     """
-    # 出力先ディレクトリの確保
     os.makedirs(output_dir, exist_ok=True)
     
-    # ファイル名と日時の生成
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     f1_name = os.path.basename(file1_path)
     f2_name = os.path.basename(file2_path)
@@ -48,6 +40,12 @@ def generate_html_report(file1_path, file2_path, diff_data, output_dir):
         .file-box {{ background: #fff; border: 1px solid var(--border-color); padding: 10px 15px; border-radius: 4px; width: 48%; box-sizing: border-box; }}
         .file-box strong {{ display: block; margin-bottom: 4px; color: #57606a; font-size: 12px; text-transform: uppercase; }}
         
+        .summary-section {{ margin: 20px; padding: 15px; border: 1px solid var(--border-color); border-radius: 6px; background-color: #fff; }}
+        .summary-section h2 {{ margin-top: 0; font-size: 16px; border-bottom: 1px solid #eee; padding-bottom: 10px; }}
+        .sheet-badge {{ display: inline-block; padding: 4px 8px; margin: 4px 8px 4px 0; border-radius: 4px; font-weight: bold; font-size: 13px; }}
+        .badge-del {{ background-color: var(--del-bg); color: var(--del-text); border: 1px solid rgba(207,34,46,0.2); }}
+        .badge-add {{ background-color: var(--add-bg); color: var(--add-text); border: 1px solid rgba(26,127,55,0.2); }}
+
         .sheet-section {{ margin: 20px; border: 1px solid var(--border-color); border-radius: 6px; overflow: hidden; }}
         .sheet-title {{ background-color: var(--header-bg); padding: 12px 16px; font-weight: 600; border-bottom: 1px solid var(--border-color); }}
         
@@ -58,12 +56,10 @@ def generate_html_report(file1_path, file2_path, diff_data, output_dir):
         
         .cell-id {{ font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-weight: bold; background: #f0f0f0; padding: 4px 8px; border-radius: 4px; display: inline-block; }}
         
-        .diff-block {{ margin-bottom: 4px; }}
         .diff-old {{ background-color: var(--del-bg); color: var(--del-text); text-decoration: line-through; padding: 3px 6px; border-radius: 3px; display: block; margin-bottom: 4px; font-family: monospace; font-size: 13px; }}
         .diff-new {{ background-color: var(--add-bg); color: var(--add-text); padding: 3px 6px; border-radius: 3px; display: block; font-family: monospace; font-size: 13px; }}
         .diff-none {{ color: #8c959f; font-style: italic; font-size: 12px; }}
 
-        /* ツールチップ設定 */
         .tooltip {{ position: relative; display: inline-block; border-bottom: 1px dotted #888; cursor: help; }}
         .tooltip .tooltiptext {{ visibility: hidden; width: 250px; background-color: #333; color: #fff; text-align: center; border-radius: 6px; padding: 8px; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -125px; opacity: 0; transition: opacity 0.2s; font-size: 12px; font-family: sans-serif; font-style: normal; text-decoration: none; }}
         .tooltip:hover .tooltiptext {{ visibility: visible; opacity: 1; }}
@@ -82,6 +78,23 @@ def generate_html_report(file1_path, file2_path, diff_data, output_dir):
                     <strong>File 2 (New)</strong>
                     {html.escape(file2_path)}
                 </div>
+            </div>
+        </div>
+"""
+
+    # --- シート構成の変更サマリー ---
+    if added_sheets or deleted_sheets:
+        html_content += """
+        <div class="summary-section">
+            <h2>📑 シート構成の変更</h2>
+            <div>
+"""
+        for s in deleted_sheets:
+            html_content += f'<span class="sheet-badge badge-del">[-] 削除されたシート: {html.escape(s)}</span>\n'
+        for s in added_sheets:
+            html_content += f'<span class="sheet-badge badge-add">[+] 追加されたシート: {html.escape(s)}</span>\n'
+        
+        html_content += """
             </div>
         </div>
 """
@@ -105,14 +118,12 @@ def generate_html_report(file1_path, file2_path, diff_data, output_dir):
                 <tbody>
 """
         for d in diffs:
-            # HTMLエスケープ（タグなどがExcelに入っていた場合の崩れ防止）
             c_id = html.escape(d['cell'])
             v1 = html.escape(d['v1']) if d['v1'] else '<空>'
             v2 = html.escape(d['v2']) if d['v2'] else '<空>'
             f1 = html.escape(d['f1']) if d['f1'] else '<空>'
             f2 = html.escape(d['f2']) if d['f2'] else '<空>'
 
-            # 値の差分HTML生成
             val_html = ""
             if d['v1'] != d['v2']:
                 val_html = f"""
@@ -122,7 +133,6 @@ def generate_html_report(file1_path, file2_path, diff_data, output_dir):
             else:
                 val_html = f'<span class="diff-none">変更なし ({v1})</span>'
 
-            # 数式の差分HTML生成
             fml_html = ""
             if d['f1'] != d['f2']:
                 fml_html = f"""
@@ -152,7 +162,6 @@ def generate_html_report(file1_path, file2_path, diff_data, output_dir):
 </html>
 """
 
-    # ファイル書き込み
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(html_content)
         
