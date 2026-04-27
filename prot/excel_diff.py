@@ -36,8 +36,25 @@ class ExcelParser:
             if 'xl/sharedStrings.xml' in z.namelist():
                 with z.open('xl/sharedStrings.xml') as f:
                     tree = ET.parse(f)
-                    for t in tree.findall('.//ns:t', self.NS_MAIN):
-                        self.shared_strings.append(t.text if t.text else "")
+                    # <t>を直接探すのではなく、文字列アイテム <si> ごとに処理する
+                    for si in tree.findall('.//ns:si', self.NS_MAIN):
+                        text_parts = []
+                        # siの直接の子要素を走査
+                        for child in si:
+                            # ① 単純な文字列の場合 (<t>)
+                            if child.tag == f"{{{self.NS_MAIN['ns']}}}t":
+                                text_parts.append(child.text if child.text else "")
+                            
+                            # ② リッチテキストの場合 (<r>) -> その下の <t> を取得
+                            elif child.tag == f"{{{self.NS_MAIN['ns']}}}r":
+                                t_node = child.find('ns:t', self.NS_MAIN)
+                                if t_node is not None and t_node.text:
+                                    text_parts.append(t_node.text)
+                            
+                            # ※ ルビ (<rPh>) など、上記以外のタグは無視されるためズレない
+                        
+                        # 抽出したパーツを結合して1つの文字列として登録
+                        self.shared_strings.append("".join(text_parts))
 
             # 2. シート名とXMLファイルパスの紐付け
             sheet_rids = {}
