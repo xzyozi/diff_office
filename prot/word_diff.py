@@ -6,7 +6,7 @@ import os
 import difflib
 
 class WordParser:
-    """標準ライブラリのみを使用してdocx/docmから段落テキストを抽出するクラス"""
+    """標準ライブラリのみを使用してdocx/docmから段落テキストを抽出するクラス（フィールド・目次無視対応版）"""
     NS = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 
     def __init__(self, filepath):
@@ -29,10 +29,44 @@ class WordParser:
             if 'word/document.xml' in z.namelist():
                 with z.open('word/document.xml') as f:
                     tree = ET.parse(f)
+                    
                     for p in tree.findall('.//w:p', self.NS):
-                        texts = [t.text for t in p.findall('.//w:t', self.NS) if t.text]
-                        # 末尾の見えない空白や改行を削除し、誤検知を防ぐ
+                        # --- フィルター①: 目次 (TOC) のスキップ ---
+                        # 段落スタイルを取得し、目次関連のスタイルなら段落ごと無視する
+                        style_node = p.find('.//w:pStyle', self.NS)
+                        if style_node is not None:
+                            style_val = style_node.get(f"{{{self.NS['w']}}}val", "").lower()
+                            # 内部スタイル名が 'toc1'〜'toc9' 等、または名前に '目次' を含む場合
+                            if style_val.startswith('toc') or '目次' in style_val:
+                                continue
+
+                        texts = []
+                        in_field_result = False # フィールドの自動更新結果エリア内かどうかのフラグ
+
+                        # --- フィルター②: フィールド情報 (自動更新値) のスキップ ---
+                        for run in p.findall('.//w:r', self.NS):
+                            # run (文字列の書式単位) の中の要素を順番に走査
+                            for child in run:
+                                # fldChar (フィールド制御文字) を見つけた場合、状態を切り替える
+                                if child.tag == f"{{{self.NS['w']}}}fldChar":
+                                    fld_type = child.get(f"{{{self.NS['w']}}}fldCharType")
+                                    if fld_type == 'separate':
+                                        # separate 以降のテキストは「自動生成された結果（表示値）」なので抽出をストップ
+                                        in_field_result = True
+                                    elif fld_type == 'end':
+                                        # end が来たらフィールド領域終了。抽出を再開
+                                        in_field_result = False
+                                        
+                                # 通常のテキスト (t) の場合、フィールド結果領域でなければ抽出
+                                elif child.tag == f"{{{self.NS['w']}}}t":
+                                    if not in_field_result and child.text:
+                                        texts.append(child.text)
+
+                        # 抽出したテキストを結合し、末尾の空白や改行を削除
                         text_content = "".join(texts).rstrip()
+                        
+                        # 空行も文書の構造として保持するが、
+                        # 目次等を除外した結果であれば、そのまま配列に積む
                         self.paragraphs.append(text_content)
             else:
                 raise ValueError("文書本体 (word/document.xml) が見つかりません。")
