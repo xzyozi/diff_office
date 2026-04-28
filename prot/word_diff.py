@@ -7,7 +7,6 @@ import difflib
 
 class WordParser:
     """標準ライブラリのみを使用してdocx/docmから段落テキストを抽出するクラス"""
-    
     NS = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
 
     def __init__(self, filepath):
@@ -23,7 +22,6 @@ class WordParser:
                 messagebox.showerror("解析エラー", f"{filepath} の読み込みに失敗しました:\n{e}")
 
     def _load_document(self):
-        """word/document.xml を解析し、段落ごとのテキストをリスト化する"""
         if not zipfile.is_zipfile(self.filepath):
             raise ValueError("有効なZIP(Office)ファイルではありません。")
 
@@ -31,11 +29,10 @@ class WordParser:
             if 'word/document.xml' in z.namelist():
                 with z.open('word/document.xml') as f:
                     tree = ET.parse(f)
-                    # <w:p> (段落) ごとに処理
                     for p in tree.findall('.//w:p', self.NS):
-                        # 段落内のすべての <w:t> (テキスト) を抽出して結合
                         texts = [t.text for t in p.findall('.//w:t', self.NS) if t.text]
-                        text_content = "".join(texts)
+                        # 【改善】末尾の見えない空白や改行を削除し、誤検知を防ぐ
+                        text_content = "".join(texts).rstrip()
                         self.paragraphs.append(text_content)
             else:
                 raise ValueError("文書本体 (word/document.xml) が見つかりません。")
@@ -46,11 +43,9 @@ class WinMergeStyleApp:
         self.root.title("Word Document Diff (WinMerge Style)")
         self.root.geometry("1200x700")
 
-        # --- コントロールパネル (上部) ---
         ctrl_frame = tk.Frame(root)
         ctrl_frame.pack(fill=tk.X, padx=10, pady=10)
 
-        # ファイル選択エリア
         tk.Label(ctrl_frame, text="左 (Old):").grid(row=0, column=0, sticky="e")
         self.path1 = tk.StringVar()
         tk.Entry(ctrl_frame, textvariable=self.path1, width=45).grid(row=0, column=1, padx=5)
@@ -61,31 +56,28 @@ class WinMergeStyleApp:
         tk.Entry(ctrl_frame, textvariable=self.path2, width=45).grid(row=1, column=1, padx=5)
         tk.Button(ctrl_frame, text="参照...", command=lambda: self.select_file(self.path2)).grid(row=1, column=2)
 
-        # 実行ボタン
         tk.Button(ctrl_frame, text="比較実行 (Diff)", command=self.run_diff, bg="#e1e1e1", width=15, font=("", 10, "bold")).grid(row=0, column=3, rowspan=2, padx=15)
 
-        # 同期スクロールのトグルスイッチ
         self.sync_scroll_var = tk.BooleanVar(value=True)
         tk.Checkbutton(ctrl_frame, text="スクロール同期", variable=self.sync_scroll_var).grid(row=0, column=4, rowspan=2, padx=5)
 
-        # 【追加】差分ジャンプナビゲーション
+        # ナビゲーションエリア
         nav_frame = tk.Frame(ctrl_frame)
         nav_frame.grid(row=0, column=5, rowspan=2, padx=15)
 
         self.btn_prev = tk.Button(nav_frame, text="▲ 前", command=self.prev_diff, state=tk.DISABLED, width=6)
         self.btn_prev.pack(side=tk.LEFT, padx=2)
 
-        self.lbl_diff_count = tk.Label(nav_frame, text="0 / 0", width=10, bg="white", relief=tk.SUNKEN)
+        self.lbl_diff_count = tk.Label(nav_frame, text="- / -", width=10, bg="white", relief=tk.SUNKEN)
         self.lbl_diff_count.pack(side=tk.LEFT, padx=5)
 
         self.btn_next = tk.Button(nav_frame, text="▼ 次", command=self.next_diff, state=tk.DISABLED, width=6)
         self.btn_next.pack(side=tk.LEFT, padx=2)
 
         # 差分ジャンプ用の状態管理
-        self.diff_positions = []    # [(left_idx, right_idx), ...]
-        self.current_diff_idx = -1
+        self.diff_positions = [] # [行番号, 行番号, ...]
 
-        # --- メインビュー (左右分割テキストエリア) ---
+        # メインビュー
         main_pane = tk.PanedWindow(root, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -112,7 +104,7 @@ class WinMergeStyleApp:
         self.text_left.bind("<MouseWheel>", self.sync_mousewheel)
         self.text_right.bind("<MouseWheel>", self.sync_mousewheel)
 
-        # --- 色タグの設定 ---
+        # 色タグの設定
         self.text_left.tag_configure("delete", background="#ffdddd")  
         self.text_right.tag_configure("insert", background="#ddffdd") 
         self.text_left.tag_configure("replace", background="#ffebcc") 
@@ -120,9 +112,6 @@ class WinMergeStyleApp:
         self.text_left.tag_configure("empty", background="#f0f0f0")   
         self.text_right.tag_configure("empty", background="#f0f0f0")
 
-    # ==========================================
-    # スクロール・ナビゲーション制御
-    # ==========================================
     def on_scroll_left(self, *args):
         self.text_left.yview(*args)
         if self.sync_scroll_var.get(): self.text_right.yview(*args)
@@ -155,33 +144,49 @@ class WinMergeStyleApp:
         path = filedialog.askopenfilename(filetypes=[("Word files", "*.docx *.docm")])
         if path: var.set(path)
 
-    # 【追加】前の差分へジャンプ
-    def prev_diff(self):
-        if not self.diff_positions: return
-        self.current_diff_idx = (self.current_diff_idx - 1) % len(self.diff_positions)
-        self.jump_to_current_diff()
+    # ==========================================
+    # 【改善】動的な差分ジャンプ（コンテキストアウェア）
+    # ==========================================
+    def get_current_top_line(self):
+        """現在画面の一番上に表示されている行番号を取得"""
+        top_idx = self.text_left.index("@0,0")
+        return int(top_idx.split('.')[0])
 
-    # 【追加】次の差分へジャンプ
     def next_diff(self):
         if not self.diff_positions: return
-        self.current_diff_idx = (self.current_diff_idx + 1) % len(self.diff_positions)
-        self.jump_to_current_diff()
-
-    # 【追加】指定した差分インデックスへスクロール
-    def jump_to_current_diff(self):
-        l_idx, r_idx = self.diff_positions[self.current_diff_idx]
+        top_line = self.get_current_top_line()
+        target_idx = 0
         
-        # 左右が勝手に連動して表示位置が狂うのを防ぐため、一時的に同期をオフにする
+        # 現在位置より下にある最初の差分を探す
+        for i, diff_line in enumerate(self.diff_positions):
+            if diff_line > top_line + 1: # +1は現在位置にとどまらないためのオフセット
+                target_idx = i
+                break
+        self.jump_to_diff(target_idx)
+
+    def prev_diff(self):
+        if not self.diff_positions: return
+        top_line = self.get_current_top_line()
+        target_idx = len(self.diff_positions) - 1
+        
+        # 現在位置より上にある最後の差分を探す（逆順ループ）
+        for i in range(len(self.diff_positions)-1, -1, -1):
+            if self.diff_positions[i] < top_line - 1:
+                target_idx = i
+                break
+        self.jump_to_diff(target_idx)
+
+    def jump_to_diff(self, index):
+        line_num = self.diff_positions[index]
+        pos = f"{line_num}.0"
+        
         sync_state = self.sync_scroll_var.get()
         self.sync_scroll_var.set(False)
-
-        # 対象の行が見える位置へジャンプ
-        self.text_left.see(l_idx)
-        self.text_right.see(r_idx)
-
-        # ラベルの更新
-        self.lbl_diff_count.config(text=f"{self.current_diff_idx + 1} / {len(self.diff_positions)}")
         
+        self.text_left.see(pos)
+        self.text_right.see(pos)
+        
+        self.lbl_diff_count.config(text=f"{index + 1} / {len(self.diff_positions)}")
         self.sync_scroll_var.set(sync_state)
 
     # ==========================================
@@ -208,67 +213,86 @@ class WinMergeStyleApp:
         self.text_left.delete(1.0, tk.END)
         self.text_right.delete(1.0, tk.END)
 
-        # 状態の初期化
         self.diff_positions.clear()
-        self.current_diff_idx = -1
         self.btn_prev.config(state=tk.DISABLED)
         self.btn_next.config(state=tk.DISABLED)
-        self.lbl_diff_count.config(text="0 / 0")
+        self.lbl_diff_count.config(text="- / -")
 
         matcher = difflib.SequenceMatcher(None, paras1, paras2)
         opcodes = matcher.get_opcodes()
 
         l_line = 1
         r_line = 1
+        ui_line = 1 # GUI上の論理行番号
+
+        all_left_text = []
+        all_right_text = []
+        
+        # 行単位の色塗りタグを蓄積する辞書
+        tags_left = {'replace': [], 'delete': [], 'empty': []}
+        tags_right = {'replace': [], 'insert': [], 'empty': []}
 
         for tag, i1, i2, j1, j2 in opcodes:
             p1_sub = paras1[i1:i2]
             p2_sub = paras2[j1:j2]
             max_len = max(len(p1_sub), len(p2_sub))
             
-            left_block_text = ""
-            right_block_text = ""
-
-            left_start_idx = self.text_left.index(tk.END)
-            right_start_idx = self.text_right.index(tk.END)
-
-            # 【追加】変更ブロックの開始位置を記録
+            # ブロックの先頭位置をジャンプ用に記録
             if tag != 'equal':
-                self.diff_positions.append((left_start_idx, right_start_idx))
+                self.diff_positions.append(ui_line)
 
             for k in range(max_len):
-                val1 = p1_sub[k] if k < len(p1_sub) else ""
-                val2 = p2_sub[k] if k < len(p2_sub) else ""
+                v1 = p1_sub[k] if k < len(p1_sub) else None
+                v2 = p2_sub[k] if k < len(p2_sub) else None
 
-                prefix1 = f"{l_line:4d} | " if k < len(p1_sub) and tag in ('equal', 'replace', 'delete') else "     | "
-                prefix2 = f"{r_line:4d} | " if k < len(p2_sub) and tag in ('equal', 'replace', 'insert') else "     | "
+                v1_str = v1 if v1 is not None else ""
+                v2_str = v2 if v2 is not None else ""
 
-                left_block_text += prefix1 + val1 + "\n"
-                right_block_text += prefix2 + val2 + "\n"
+                prefix1 = f"{l_line:4d} | " if v1 is not None and tag in ('equal', 'replace', 'delete') else "     | "
+                prefix2 = f"{r_line:4d} | " if v2 is not None and tag in ('equal', 'replace', 'insert') else "     | "
 
-                if k < len(p1_sub) and tag in ('equal', 'replace', 'delete'): l_line += 1
-                if k < len(p2_sub) and tag in ('equal', 'replace', 'insert'): r_line += 1
+                all_left_text.append(prefix1 + v1_str)
+                all_right_text.append(prefix2 + v2_str)
 
-            self.text_left.insert(tk.END, left_block_text)
-            self.text_right.insert(tk.END, right_block_text)
+                # 【改善】1行ごとに厳密なタグ（色）を判定
+                ltag, rtag = None, None
+                if tag == 'delete':
+                    ltag, rtag = 'delete', 'empty'
+                elif tag == 'insert':
+                    ltag, rtag = 'empty', 'insert'
+                elif tag == 'replace':
+                    if v1 is not None and v2 is not None:
+                        if v1 != v2: # 本当にテキストが異なる場合のみオレンジ
+                            ltag, rtag = 'replace', 'replace'
+                    elif v1 is not None and v2 is None: # 左側が余っている（削除扱い）
+                        ltag, rtag = 'delete', 'empty'
+                    elif v1 is None and v2 is not None: # 右側が余っている（追加扱い）
+                        ltag, rtag = 'empty', 'insert'
 
-            left_end_idx = self.text_left.index(f"{tk.END}-1c")
-            right_end_idx = self.text_right.index(f"{tk.END}-1c")
+                if ltag: tags_left[ltag].append(ui_line)
+                if rtag: tags_right[rtag].append(ui_line)
 
-            if tag == 'replace':
-                self.text_left.tag_add("replace", left_start_idx, left_end_idx)
-                self.text_right.tag_add("replace", right_start_idx, right_end_idx)
-            elif tag == 'delete':
-                self.text_left.tag_add("delete", left_start_idx, left_end_idx)
-                self.text_right.tag_add("empty", right_start_idx, right_end_idx)
-            elif tag == 'insert':
-                self.text_left.tag_add("empty", left_start_idx, left_end_idx)
-                self.text_right.tag_add("insert", right_start_idx, right_end_idx)
+                if v1 is not None and tag in ('equal', 'replace', 'delete'): l_line += 1
+                if v2 is not None and tag in ('equal', 'replace', 'insert'): r_line += 1
+                ui_line += 1
+
+        # テキストを一括挿入（高速化）
+        self.text_left.insert(tk.END, "\n".join(all_left_text) + "\n")
+        self.text_right.insert(tk.END, "\n".join(all_right_text) + "\n")
+
+        # タグを一括適用（高速化）
+        for tname, lines in tags_left.items():
+            for line_num in lines:
+                self.text_left.tag_add(tname, f"{line_num}.0", f"{line_num}.end")
+        
+        for tname, lines in tags_right.items():
+            for line_num in lines:
+                self.text_right.tag_add(tname, f"{line_num}.0", f"{line_num}.end")
 
         self.text_left.config(state=tk.DISABLED)
         self.text_right.config(state=tk.DISABLED)
 
-        # 完了後のジャンプ処理
+        # 完了処理
         if not self.diff_positions:
             messagebox.showinfo("比較完了", "段落テキストに差分は見つかりませんでした。")
         else:
