@@ -31,7 +31,7 @@ class WordParser:
                     tree = ET.parse(f)
                     for p in tree.findall('.//w:p', self.NS):
                         texts = [t.text for t in p.findall('.//w:t', self.NS) if t.text]
-                        # 【改善】末尾の見えない空白や改行を削除し、誤検知を防ぐ
+                        # 末尾の見えない空白や改行を削除し、誤検知を防ぐ
                         text_content = "".join(texts).rstrip()
                         self.paragraphs.append(text_content)
             else:
@@ -43,9 +43,11 @@ class WinMergeStyleApp:
         self.root.title("Word Document Diff (WinMerge Style)")
         self.root.geometry("1200x700")
 
+        # --- コントロールパネル (上部) ---
         ctrl_frame = tk.Frame(root)
         ctrl_frame.pack(fill=tk.X, padx=10, pady=10)
 
+        # ファイル選択エリア
         tk.Label(ctrl_frame, text="左 (Old):").grid(row=0, column=0, sticky="e")
         self.path1 = tk.StringVar()
         tk.Entry(ctrl_frame, textvariable=self.path1, width=45).grid(row=0, column=1, padx=5)
@@ -68,16 +70,24 @@ class WinMergeStyleApp:
         self.btn_prev = tk.Button(nav_frame, text="▲ 前", command=self.prev_diff, state=tk.DISABLED, width=6)
         self.btn_prev.pack(side=tk.LEFT, padx=2)
 
-        self.lbl_diff_count = tk.Label(nav_frame, text="- / -", width=10, bg="white", relief=tk.SUNKEN)
-        self.lbl_diff_count.pack(side=tk.LEFT, padx=5)
+        # 番号直接入力用のEntryウィジェット
+        self.entry_diff_num = tk.Entry(nav_frame, width=5, justify=tk.CENTER)
+        self.entry_diff_num.pack(side=tk.LEFT, padx=2)
+        self.entry_diff_num.insert(0, "-")
+        self.entry_diff_num.bind('<Return>', self.jump_to_specified_diff)
+
+        # 全件数表示用のラベル
+        self.lbl_diff_total = tk.Label(nav_frame, text="/ 0")
+        self.lbl_diff_total.pack(side=tk.LEFT, padx=2)
 
         self.btn_next = tk.Button(nav_frame, text="▼ 次", command=self.next_diff, state=tk.DISABLED, width=6)
         self.btn_next.pack(side=tk.LEFT, padx=2)
 
         # 差分ジャンプ用の状態管理
-        self.diff_positions = [] # [行番号, 行番号, ...]
+        self.diff_positions = [] # [GUI論理行番号, ...]
+        self.current_diff_idx = -1
 
-        # メインビュー
+        # --- メインビュー (左右分割テキストエリア) ---
         main_pane = tk.PanedWindow(root, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
@@ -112,6 +122,9 @@ class WinMergeStyleApp:
         self.text_left.tag_configure("empty", background="#f0f0f0")   
         self.text_right.tag_configure("empty", background="#f0f0f0")
 
+    # ==========================================
+    # スクロール制御
+    # ==========================================
     def on_scroll_left(self, *args):
         self.text_left.yview(*args)
         if self.sync_scroll_var.get(): self.text_right.yview(*args)
@@ -145,39 +158,30 @@ class WinMergeStyleApp:
         if path: var.set(path)
 
     # ==========================================
-    # 【改善】動的な差分ジャンプ（コンテキストアウェア）
+    # 差分ジャンプナビゲーション制御
     # ==========================================
-    def get_current_top_line(self):
-        """現在画面の一番上に表示されている行番号を取得"""
-        top_idx = self.text_left.index("@0,0")
-        return int(top_idx.split('.')[0])
+    def prev_diff(self):
+        self.jump_to_diff(self.current_diff_idx - 1)
 
     def next_diff(self):
-        if not self.diff_positions: return
-        top_line = self.get_current_top_line()
-        target_idx = 0
-        
-        # 現在位置より下にある最初の差分を探す
-        for i, diff_line in enumerate(self.diff_positions):
-            if diff_line > top_line + 1: # +1は現在位置にとどまらないためのオフセット
-                target_idx = i
-                break
-        self.jump_to_diff(target_idx)
+        self.jump_to_diff(self.current_diff_idx + 1)
 
-    def prev_diff(self):
+    def jump_to_specified_diff(self, event=None):
         if not self.diff_positions: return
-        top_line = self.get_current_top_line()
-        target_idx = len(self.diff_positions) - 1
-        
-        # 現在位置より上にある最後の差分を探す（逆順ループ）
-        for i in range(len(self.diff_positions)-1, -1, -1):
-            if self.diff_positions[i] < top_line - 1:
-                target_idx = i
-                break
-        self.jump_to_diff(target_idx)
+        try:
+            num = int(self.entry_diff_num.get())
+            self.jump_to_diff(num - 1)
+        except ValueError:
+            self._update_counter_display()
 
     def jump_to_diff(self, index):
-        line_num = self.diff_positions[index]
+        if not self.diff_positions: return
+        
+        # ループ処理（最後を超えたら最初に戻る）
+        total = len(self.diff_positions)
+        self.current_diff_idx = index % total
+
+        line_num = self.diff_positions[self.current_diff_idx]
         pos = f"{line_num}.0"
         
         sync_state = self.sync_scroll_var.get()
@@ -186,8 +190,12 @@ class WinMergeStyleApp:
         self.text_left.see(pos)
         self.text_right.see(pos)
         
-        self.lbl_diff_count.config(text=f"{index + 1} / {len(self.diff_positions)}")
+        self._update_counter_display()
         self.sync_scroll_var.set(sync_state)
+
+    def _update_counter_display(self):
+        self.entry_diff_num.delete(0, tk.END)
+        self.entry_diff_num.insert(0, str(self.current_diff_idx + 1))
 
     # ==========================================
     # 差分比較実行メソッド
@@ -213,22 +221,25 @@ class WinMergeStyleApp:
         self.text_left.delete(1.0, tk.END)
         self.text_right.delete(1.0, tk.END)
 
+        # 状態の初期化
         self.diff_positions.clear()
+        self.current_diff_idx = -1
         self.btn_prev.config(state=tk.DISABLED)
         self.btn_next.config(state=tk.DISABLED)
-        self.lbl_diff_count.config(text="- / -")
+        self.entry_diff_num.delete(0, tk.END)
+        self.entry_diff_num.insert(0, "-")
+        self.lbl_diff_total.config(text="/ 0")
 
         matcher = difflib.SequenceMatcher(None, paras1, paras2)
         opcodes = matcher.get_opcodes()
 
         l_line = 1
         r_line = 1
-        ui_line = 1 # GUI上の論理行番号
+        ui_line = 1 
 
         all_left_text = []
         all_right_text = []
         
-        # 行単位の色塗りタグを蓄積する辞書
         tags_left = {'replace': [], 'delete': [], 'empty': []}
         tags_right = {'replace': [], 'insert': [], 'empty': []}
 
@@ -237,7 +248,7 @@ class WinMergeStyleApp:
             p2_sub = paras2[j1:j2]
             max_len = max(len(p1_sub), len(p2_sub))
             
-            # ブロックの先頭位置をジャンプ用に記録
+            # 変更ブロックの先頭をジャンプ用に記録
             if tag != 'equal':
                 self.diff_positions.append(ui_line)
 
@@ -254,7 +265,7 @@ class WinMergeStyleApp:
                 all_left_text.append(prefix1 + v1_str)
                 all_right_text.append(prefix2 + v2_str)
 
-                # 【改善】1行ごとに厳密なタグ（色）を判定
+                # 1行ごとの厳密なタグ判定
                 ltag, rtag = None, None
                 if tag == 'delete':
                     ltag, rtag = 'delete', 'empty'
@@ -262,11 +273,11 @@ class WinMergeStyleApp:
                     ltag, rtag = 'empty', 'insert'
                 elif tag == 'replace':
                     if v1 is not None and v2 is not None:
-                        if v1 != v2: # 本当にテキストが異なる場合のみオレンジ
+                        if v1 != v2:
                             ltag, rtag = 'replace', 'replace'
-                    elif v1 is not None and v2 is None: # 左側が余っている（削除扱い）
+                    elif v1 is not None and v2 is None:
                         ltag, rtag = 'delete', 'empty'
-                    elif v1 is None and v2 is not None: # 右側が余っている（追加扱い）
+                    elif v1 is None and v2 is not None:
                         ltag, rtag = 'empty', 'insert'
 
                 if ltag: tags_left[ltag].append(ui_line)
@@ -276,11 +287,11 @@ class WinMergeStyleApp:
                 if v2 is not None and tag in ('equal', 'replace', 'insert'): r_line += 1
                 ui_line += 1
 
-        # テキストを一括挿入（高速化）
+        # 高速一括挿入
         self.text_left.insert(tk.END, "\n".join(all_left_text) + "\n")
         self.text_right.insert(tk.END, "\n".join(all_right_text) + "\n")
 
-        # タグを一括適用（高速化）
+        # 高速タグ適用
         for tname, lines in tags_left.items():
             for line_num in lines:
                 self.text_left.tag_add(tname, f"{line_num}.0", f"{line_num}.end")
@@ -292,14 +303,15 @@ class WinMergeStyleApp:
         self.text_left.config(state=tk.DISABLED)
         self.text_right.config(state=tk.DISABLED)
 
-        # 完了処理
+        # 完了後のジャンプとUI更新
         if not self.diff_positions:
             messagebox.showinfo("比較完了", "段落テキストに差分は見つかりませんでした。")
         else:
+            self.lbl_diff_total.config(text=f"/ {len(self.diff_positions)}")
             self.btn_prev.config(state=tk.NORMAL)
             self.btn_next.config(state=tk.NORMAL)
-            self.next_diff() # 自動的に最初の差分へジャンプ
-            
+            self.jump_to_diff(0) # 最初の差分へジャンプ
+
 if __name__ == "__main__":
     root = tk.Tk()
     app = WinMergeStyleApp(root)
