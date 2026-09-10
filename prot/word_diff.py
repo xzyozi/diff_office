@@ -1,9 +1,14 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, ttk
 import zipfile
 import xml.etree.ElementTree as ET
 import os
 import difflib
+
+try:
+    from .word_link_validator import validate_word_links
+except ImportError:
+    from word_link_validator import validate_word_links
 
 class WordParser:
     """標準ライブラリのみを使用してdocx/docmから段落テキストを抽出するクラス（フィールド・目次無視対応版）"""
@@ -80,7 +85,7 @@ class WinMergeStyleApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Word Document Diff (WinMerge Style)")
-        self.root.geometry("1200x700")
+        self.root.geometry("1200x760")
 
         # --- コントロールパネル (上部) ---
         ctrl_frame = tk.Frame(root)
@@ -126,6 +131,27 @@ class WinMergeStyleApp:
         self.diff_positions = [] # [GUI論理行番号, ...]
         self.current_diff_idx = -1
 
+        self.link_validation_issues = []
+        self.link_status_frame = tk.Frame(root, bd=1, relief=tk.SOLID, bg="#f8fafc")
+        self.link_status_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
+        self.link_status_text = tk.StringVar(value="リンク整合性: 未確認")
+        self.link_status_label = tk.Label(
+            self.link_status_frame,
+            textvariable=self.link_status_text,
+            bg="#f8fafc",
+            padx=10,
+            pady=7,
+        )
+        self.link_status_label.pack(side=tk.LEFT)
+        tk.Label(self.link_status_frame, text="構造確認のみ", bg="#f8fafc", fg="#64748b").pack(side=tk.LEFT)
+        self.link_detail_button = tk.Button(
+            self.link_status_frame,
+            text="詳細を表示",
+            command=self.show_link_validation_details,
+            state=tk.DISABLED,
+        )
+        self.link_detail_button.pack(side=tk.RIGHT, padx=8, pady=4)
+
         # --- メインビュー (左右分割テキストエリア) ---
         main_pane = tk.PanedWindow(root, orient=tk.HORIZONTAL)
         main_pane.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -160,6 +186,55 @@ class WinMergeStyleApp:
         self.text_right.tag_configure("replace", background="#ffebcc") 
         self.text_left.tag_configure("empty", background="#f0f0f0")   
         self.text_right.tag_configure("empty", background="#f0f0f0")
+
+    def _update_link_validation(self, results):
+        self.link_validation_issues = [
+            (document_label, issue)
+            for document_label, result in results
+            for issue in result.issues
+        ]
+        checked_references = sum(result.checked_references for _, result in results)
+        unreadable = any(result.status == "UNREADABLE" for _, result in results)
+
+        if not self.link_validation_issues:
+            text = f"リンク整合性: 問題なし（{checked_references}件を確認）"
+            background, foreground = "#dcfce7", "#166534"
+            self.link_detail_button.config(state=tk.DISABLED)
+        elif unreadable:
+            text = f"リンク整合性: {len(self.link_validation_issues)}件の読み込みエラー"
+            background, foreground = "#fee2e2", "#b91c1c"
+            self.link_detail_button.config(state=tk.NORMAL)
+        else:
+            text = f"リンク整合性: {len(self.link_validation_issues)}件の確認事項"
+            background, foreground = "#fef3c7", "#92400e"
+            self.link_detail_button.config(state=tk.NORMAL)
+
+        self.link_status_text.set(text)
+        self.link_status_frame.config(bg=background)
+        self.link_status_label.config(bg=background, fg=foreground)
+        for child in self.link_status_frame.winfo_children():
+            if child is not self.link_status_label and child is not self.link_detail_button:
+                child.config(bg=background)
+
+    def show_link_validation_details(self):
+        if not self.link_validation_issues:
+            return
+
+        detail_window = tk.Toplevel(self.root)
+        detail_window.title("リンク整合性の詳細")
+        detail_window.geometry("1080x360")
+        columns = ("document", "code", "part", "target", "detail")
+        tree = ttk.Treeview(detail_window, columns=columns, show="headings")
+        headings = ("文書", "結果", "参照元", "リンク先・ID", "詳細")
+        widths = (100, 220, 200, 220, 300)
+        for column, heading, width in zip(columns, headings, widths):
+            tree.heading(column, text=heading)
+            tree.column(column, width=width, anchor=tk.W)
+
+        for document_label, issue in self.link_validation_issues:
+            target = issue.target or issue.reference_id or "-"
+            tree.insert("", tk.END, values=(document_label, issue.code, issue.source_part, target, issue.detail))
+        tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
     # ==========================================
     # スクロール制御
@@ -251,6 +326,12 @@ class WinMergeStyleApp:
         parser1 = WordParser(p1)
         parser2 = WordParser(p2)
         if not parser1.valid or not parser2.valid: return
+
+        link_results = [
+            ("比較元", validate_word_links(p1)),
+            ("比較先", validate_word_links(p2)),
+        ]
+        self._update_link_validation(link_results)
 
         paras1 = parser1.paragraphs
         paras2 = parser2.paragraphs
