@@ -220,7 +220,7 @@ class WinMergeStyleApp:
         self.link_status_label.config(background=background, foreground=foreground)
         for child in self.link_status_frame.winfo_children():
             if child is not self.link_status_label and child is not self.link_detail_button:
-                child.config(background=background)
+                child.configure({"background": background})
 
     def show_link_validation_details(self) -> None:
         if not self.link_validation_issues:
