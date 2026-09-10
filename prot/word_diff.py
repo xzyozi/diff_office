@@ -1,24 +1,26 @@
+import difflib
+import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
-import zipfile
 import xml.etree.ElementTree as ET
-import os
-import difflib
+import zipfile
 
 try:
     from .word_link_validator import validate_word_links
 except ImportError:
     from word_link_validator import validate_word_links
 
+
 class WordParser:
     """標準ライブラリのみを使用してdocx/docmから段落テキストを抽出するクラス（フィールド・目次無視対応版）"""
-    NS = {'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'}
+
+    NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 
     def __init__(self, filepath):
         self.filepath = filepath
         self.paragraphs = []
         self.valid = False
-        
+
         if os.path.exists(filepath):
             try:
                 self._load_document()
@@ -29,7 +31,7 @@ class WordParser:
     def _extract_paragraph_text(self, paragraph):
         texts = []
         in_field_result = False
-        namespace = self.NS['w']
+        namespace = self.NS["w"]
         field_simple_tag = f"{{{namespace}}}fldSimple"
         field_character_tag = f"{{{namespace}}}fldChar"
         field_character_type = f"{{{namespace}}}fldCharType"
@@ -46,9 +48,9 @@ class WordParser:
                     for run_child in child:
                         if run_child.tag == field_character_tag:
                             field_type = run_child.get(field_character_type)
-                            if field_type == 'separate':
+                            if field_type == "separate":
                                 in_field_result = True
-                            elif field_type == 'end':
+                            elif field_type == "end":
                                 in_field_result = False
                         elif run_child.tag == text_tag and not in_field_result and run_child.text:
                             texts.append(run_child.text)
@@ -62,24 +64,25 @@ class WordParser:
         if not zipfile.is_zipfile(self.filepath):
             raise ValueError("有効なZIP(Office)ファイルではありません。")
 
-        with zipfile.ZipFile(self.filepath, 'r') as z:
-            if 'word/document.xml' not in z.namelist():
+        with zipfile.ZipFile(self.filepath, "r") as z:
+            if "word/document.xml" not in z.namelist():
                 raise ValueError("文書本体 (word/document.xml) が見つかりません。")
 
-            with z.open('word/document.xml') as f:
+            with z.open("word/document.xml") as f:
                 tree = ET.parse(f)
-                body = tree.find('./w:body', self.NS)
+                body = tree.find("./w:body", self.NS)
                 if body is None:
                     raise ValueError("文書本体 (w:body) が見つかりません。")
 
-                for paragraph in body.findall('./w:p', self.NS):
-                    style_node = paragraph.find('.//w:pStyle', self.NS)
+                for paragraph in body.findall("./w:p", self.NS):
+                    style_node = paragraph.find(".//w:pStyle", self.NS)
                     if style_node is not None:
                         style_value = style_node.get(f"{{{self.NS['w']}}}val", "").lower()
-                        if style_value.startswith('toc') or '目次' in style_value:
+                        if style_value.startswith("toc") or "目次" in style_value:
                             continue
 
                     self.paragraphs.append(self._extract_paragraph_text(paragraph))
+
 
 class WinMergeStyleApp:
     def __init__(self, root):
@@ -102,10 +105,14 @@ class WinMergeStyleApp:
         tk.Entry(ctrl_frame, textvariable=self.path2, width=45).grid(row=1, column=1, padx=5)
         tk.Button(ctrl_frame, text="参照...", command=lambda: self.select_file(self.path2)).grid(row=1, column=2)
 
-        tk.Button(ctrl_frame, text="比較実行 (Diff)", command=self.run_diff, bg="#e1e1e1", width=15, font=("", 10, "bold")).grid(row=0, column=3, rowspan=2, padx=15)
+        tk.Button(
+            ctrl_frame, text="比較実行 (Diff)", command=self.run_diff, bg="#e1e1e1", width=15, font=("", 10, "bold")
+        ).grid(row=0, column=3, rowspan=2, padx=15)
 
         self.sync_scroll_var = tk.BooleanVar(value=True)
-        tk.Checkbutton(ctrl_frame, text="スクロール同期", variable=self.sync_scroll_var).grid(row=0, column=4, rowspan=2, padx=5)
+        tk.Checkbutton(ctrl_frame, text="スクロール同期", variable=self.sync_scroll_var).grid(
+            row=0, column=4, rowspan=2, padx=5
+        )
 
         # ナビゲーションエリア
         nav_frame = tk.Frame(ctrl_frame)
@@ -118,7 +125,7 @@ class WinMergeStyleApp:
         self.entry_diff_num = tk.Entry(nav_frame, width=5, justify=tk.CENTER)
         self.entry_diff_num.pack(side=tk.LEFT, padx=2)
         self.entry_diff_num.insert(0, "-")
-        self.entry_diff_num.bind('<Return>', self.jump_to_specified_diff)
+        self.entry_diff_num.bind("<Return>", self.jump_to_specified_diff)
 
         # 全件数表示用のラベル
         self.lbl_diff_total = tk.Label(nav_frame, text="/ 0")
@@ -128,7 +135,7 @@ class WinMergeStyleApp:
         self.btn_next.pack(side=tk.LEFT, padx=2)
 
         # 差分ジャンプ用の状態管理
-        self.diff_positions = [] # [GUI論理行番号, ...]
+        self.diff_positions = []  # [GUI論理行番号, ...]
         self.current_diff_idx = -1
 
         self.link_validation_issues = []
@@ -175,23 +182,21 @@ class WinMergeStyleApp:
         self.text_right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.scroll_right.pack(side=tk.RIGHT, fill=tk.Y)
         main_pane.add(right_frame, stretch="always")
-        
+
         self.text_left.bind("<MouseWheel>", self.sync_mousewheel)
         self.text_right.bind("<MouseWheel>", self.sync_mousewheel)
 
         # 色タグの設定
-        self.text_left.tag_configure("delete", background="#ffdddd")  
-        self.text_right.tag_configure("insert", background="#ddffdd") 
-        self.text_left.tag_configure("replace", background="#ffebcc") 
-        self.text_right.tag_configure("replace", background="#ffebcc") 
-        self.text_left.tag_configure("empty", background="#f0f0f0")   
+        self.text_left.tag_configure("delete", background="#ffdddd")
+        self.text_right.tag_configure("insert", background="#ddffdd")
+        self.text_left.tag_configure("replace", background="#ffebcc")
+        self.text_right.tag_configure("replace", background="#ffebcc")
+        self.text_left.tag_configure("empty", background="#f0f0f0")
         self.text_right.tag_configure("empty", background="#f0f0f0")
 
     def _update_link_validation(self, results):
         self.link_validation_issues = [
-            (document_label, issue)
-            for document_label, result in results
-            for issue in result.issues
+            (document_label, issue) for document_label, result in results for issue in result.issues
         ]
         checked_references = sum(result.checked_references for _, result in results)
         unreadable = any(result.status == "UNREADABLE" for _, result in results)
@@ -241,11 +246,13 @@ class WinMergeStyleApp:
     # ==========================================
     def on_scroll_left(self, *args):
         self.text_left.yview(*args)
-        if self.sync_scroll_var.get(): self.text_right.yview(*args)
+        if self.sync_scroll_var.get():
+            self.text_right.yview(*args)
 
     def on_scroll_right(self, *args):
         self.text_right.yview(*args)
-        if self.sync_scroll_var.get(): self.text_left.yview(*args)
+        if self.sync_scroll_var.get():
+            self.text_left.yview(*args)
 
     def set_scroll_left(self, *args):
         self.scroll_left.set(*args)
@@ -263,13 +270,14 @@ class WinMergeStyleApp:
 
     def sync_mousewheel(self, event):
         if self.sync_scroll_var.get():
-            self.text_left.yview_scroll(int(-1*(event.delta/120)), "units")
-            self.text_right.yview_scroll(int(-1*(event.delta/120)), "units")
+            self.text_left.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            self.text_right.yview_scroll(int(-1 * (event.delta / 120)), "units")
             return "break"
 
     def select_file(self, var):
         path = filedialog.askopenfilename(filetypes=[("Word files", "*.docx *.docm")])
-        if path: var.set(path)
+        if path:
+            var.set(path)
 
     # ==========================================
     # 差分ジャンプナビゲーション制御
@@ -281,7 +289,8 @@ class WinMergeStyleApp:
         self.jump_to_diff(self.current_diff_idx + 1)
 
     def jump_to_specified_diff(self, event=None):
-        if not self.diff_positions: return
+        if not self.diff_positions:
+            return
         try:
             num = int(self.entry_diff_num.get())
             self.jump_to_diff(num - 1)
@@ -289,21 +298,22 @@ class WinMergeStyleApp:
             self._update_counter_display()
 
     def jump_to_diff(self, index):
-        if not self.diff_positions: return
-        
+        if not self.diff_positions:
+            return
+
         # ループ処理（最後を超えたら最初に戻る）
         total = len(self.diff_positions)
         self.current_diff_idx = index % total
 
         line_num = self.diff_positions[self.current_diff_idx]
         pos = f"{line_num}.0"
-        
+
         sync_state = self.sync_scroll_var.get()
         self.sync_scroll_var.set(False)
-        
+
         self.text_left.see(pos)
         self.text_right.see(pos)
-        
+
         self._update_counter_display()
         self.sync_scroll_var.set(sync_state)
 
@@ -325,7 +335,8 @@ class WinMergeStyleApp:
 
         parser1 = WordParser(p1)
         parser2 = WordParser(p2)
-        if not parser1.valid or not parser2.valid: return
+        if not parser1.valid or not parser2.valid:
+            return
 
         link_results = [
             ("比較元", validate_word_links(p1)),
@@ -355,21 +366,21 @@ class WinMergeStyleApp:
 
         l_line = 1
         r_line = 1
-        ui_line = 1 
+        ui_line = 1
 
         all_left_text = []
         all_right_text = []
-        
-        tags_left = {'replace': [], 'delete': [], 'empty': []}
-        tags_right = {'replace': [], 'insert': [], 'empty': []}
+
+        tags_left = {"replace": [], "delete": [], "empty": []}
+        tags_right = {"replace": [], "insert": [], "empty": []}
 
         for tag, i1, i2, j1, j2 in opcodes:
             p1_sub = paras1[i1:i2]
             p2_sub = paras2[j1:j2]
             max_len = max(len(p1_sub), len(p2_sub))
-            
+
             # 変更ブロックの先頭をジャンプ用に記録
-            if tag != 'equal':
+            if tag != "equal":
                 self.diff_positions.append(ui_line)
 
             for k in range(max_len):
@@ -379,32 +390,36 @@ class WinMergeStyleApp:
                 v1_str = v1 if v1 is not None else ""
                 v2_str = v2 if v2 is not None else ""
 
-                prefix1 = f"{l_line:4d} | " if v1 is not None and tag in ('equal', 'replace', 'delete') else "     | "
-                prefix2 = f"{r_line:4d} | " if v2 is not None and tag in ('equal', 'replace', 'insert') else "     | "
+                prefix1 = f"{l_line:4d} | " if v1 is not None and tag in ("equal", "replace", "delete") else "     | "
+                prefix2 = f"{r_line:4d} | " if v2 is not None and tag in ("equal", "replace", "insert") else "     | "
 
                 all_left_text.append(prefix1 + v1_str)
                 all_right_text.append(prefix2 + v2_str)
 
                 # 1行ごとの厳密なタグ判定
                 ltag, rtag = None, None
-                if tag == 'delete':
-                    ltag, rtag = 'delete', 'empty'
-                elif tag == 'insert':
-                    ltag, rtag = 'empty', 'insert'
-                elif tag == 'replace':
+                if tag == "delete":
+                    ltag, rtag = "delete", "empty"
+                elif tag == "insert":
+                    ltag, rtag = "empty", "insert"
+                elif tag == "replace":
                     if v1 is not None and v2 is not None:
                         if v1 != v2:
-                            ltag, rtag = 'replace', 'replace'
+                            ltag, rtag = "replace", "replace"
                     elif v1 is not None and v2 is None:
-                        ltag, rtag = 'delete', 'empty'
+                        ltag, rtag = "delete", "empty"
                     elif v1 is None and v2 is not None:
-                        ltag, rtag = 'empty', 'insert'
+                        ltag, rtag = "empty", "insert"
 
-                if ltag: tags_left[ltag].append(ui_line)
-                if rtag: tags_right[rtag].append(ui_line)
+                if ltag:
+                    tags_left[ltag].append(ui_line)
+                if rtag:
+                    tags_right[rtag].append(ui_line)
 
-                if v1 is not None and tag in ('equal', 'replace', 'delete'): l_line += 1
-                if v2 is not None and tag in ('equal', 'replace', 'insert'): r_line += 1
+                if v1 is not None and tag in ("equal", "replace", "delete"):
+                    l_line += 1
+                if v2 is not None and tag in ("equal", "replace", "insert"):
+                    r_line += 1
                 ui_line += 1
 
         # 高速一括挿入
@@ -415,7 +430,7 @@ class WinMergeStyleApp:
         for tname, lines in tags_left.items():
             for line_num in lines:
                 self.text_left.tag_add(tname, f"{line_num}.0", f"{line_num}.end")
-        
+
         for tname, lines in tags_right.items():
             for line_num in lines:
                 self.text_right.tag_add(tname, f"{line_num}.0", f"{line_num}.end")
@@ -430,7 +445,8 @@ class WinMergeStyleApp:
             self.lbl_diff_total.config(text=f"/ {len(self.diff_positions)}")
             self.btn_prev.config(state=tk.NORMAL)
             self.btn_next.config(state=tk.NORMAL)
-            self.jump_to_diff(0) # 最初の差分へジャンプ
+            self.jump_to_diff(0)  # 最初の差分へジャンプ
+
 
 if __name__ == "__main__":
     root = tk.Tk()

@@ -4,9 +4,9 @@ from dataclasses import dataclass
 import os
 import posixpath
 from typing import Mapping
-import zipfile
-import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
+import xml.etree.ElementTree as ET
+import zipfile
 
 WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 RELATIONSHIP_NAMESPACE = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -72,12 +72,12 @@ class WordLinkIntegrityChecker:
     @staticmethod
     def _word_xml_parts(package_files: set[str]) -> list[str]:
         return sorted(
-            name for name in package_files if name.startswith("word/") and name.endswith(".xml") and "/_rels/" not in name
+            name
+            for name in package_files
+            if name.startswith("word/") and name.endswith(".xml") and "/_rels/" not in name
         )
 
-    def _parse_xml(
-        self, package: zipfile.ZipFile, part: str, issues: list[LinkIntegrityIssue]
-    ) -> ET.Element | None:
+    def _parse_xml(self, package: zipfile.ZipFile, part: str, issues: list[LinkIntegrityIssue]) -> ET.Element | None:
         try:
             with package.open(part) as source:
                 return ET.parse(source).getroot()
@@ -132,9 +132,27 @@ class WordLinkIntegrityChecker:
             if anchor:
                 checked += 1
                 if anchor not in bookmarks:
-                    issues.append(LinkIntegrityIssue("MISSING_BOOKMARK", "ERROR", "word/document.xml", "bookmark", "リンク先のブックマークがありません。", target=anchor))
+                    issues.append(
+                        LinkIntegrityIssue(
+                            "MISSING_BOOKMARK",
+                            "ERROR",
+                            "word/document.xml",
+                            "bookmark",
+                            "リンク先のブックマークがありません。",
+                            target=anchor,
+                        )
+                    )
                 elif bookmarks[anchor] > 1:
-                    issues.append(LinkIntegrityIssue("DUPLICATE_BOOKMARK", "WARNING", "word/document.xml", "bookmark", "同名のブックマークが複数あります。", target=anchor))
+                    issues.append(
+                        LinkIntegrityIssue(
+                            "DUPLICATE_BOOKMARK",
+                            "WARNING",
+                            "word/document.xml",
+                            "bookmark",
+                            "同名のブックマークが複数あります。",
+                            target=anchor,
+                        )
+                    )
         return checked
 
     @staticmethod
@@ -154,14 +172,43 @@ class WordLinkIntegrityChecker:
     ) -> None:
         relationship = relationships.get(relation_id)
         if relationship is None:
-            issues.append(LinkIntegrityIssue("MISSING_RELATIONSHIP", "ERROR", "word/document.xml", "hyperlink", "r:id に対応するリレーションがありません。", relation_id))
+            issues.append(
+                LinkIntegrityIssue(
+                    "MISSING_RELATIONSHIP",
+                    "ERROR",
+                    "word/document.xml",
+                    "hyperlink",
+                    "r:id に対応するリレーションがありません。",
+                    relation_id,
+                )
+            )
             return
         target = relationship.get("Target", "")
         relationship_type = relationship.get("Type", "")
         if not relationship_type.endswith("/hyperlink") or relationship.get("TargetMode") != "External":
-            issues.append(LinkIntegrityIssue("INVALID_HYPERLINK_RELATIONSHIP", "ERROR", "word/document.xml", "hyperlink", "外部ハイパーリンクのリレーション形式が不正です。", relation_id, target))
+            issues.append(
+                LinkIntegrityIssue(
+                    "INVALID_HYPERLINK_RELATIONSHIP",
+                    "ERROR",
+                    "word/document.xml",
+                    "hyperlink",
+                    "外部ハイパーリンクのリレーション形式が不正です。",
+                    relation_id,
+                    target,
+                )
+            )
         elif not self._is_external_target(target):
-            issues.append(LinkIntegrityIssue("INVALID_EXTERNAL_TARGET", "ERROR", "word/document.xml", "hyperlink", "外部リンク先の形式が不正です。", relation_id, target))
+            issues.append(
+                LinkIntegrityIssue(
+                    "INVALID_EXTERNAL_TARGET",
+                    "ERROR",
+                    "word/document.xml",
+                    "hyperlink",
+                    "外部リンク先の形式が不正です。",
+                    relation_id,
+                    target,
+                )
+            )
 
     @staticmethod
     def _is_external_target(target: str) -> bool:
@@ -185,10 +232,16 @@ class WordLinkIntegrityChecker:
                 for attribute, relation_id in element.attrib.items():
                     if not attribute.startswith(f"{{{OFFICE_RELATIONSHIP_NAMESPACE}}}"):
                         continue
-                    if part == "word/document.xml" and element.tag == f"{{{WORD_NAMESPACE}}}hyperlink" and attribute.endswith("}id"):
+                    if (
+                        part == "word/document.xml"
+                        and element.tag == f"{{{WORD_NAMESPACE}}}hyperlink"
+                        and attribute.endswith("}id")
+                    ):
                         continue
                     checked += 1
-                    self._check_package_relationship(part, relation_id, relationships.get(part, {}), package_files, issues)
+                    self._check_package_relationship(
+                        part, relation_id, relationships.get(part, {}), package_files, issues
+                    )
         return checked
 
     def _check_package_relationship(
@@ -201,16 +254,45 @@ class WordLinkIntegrityChecker:
     ) -> None:
         relationship = relationships.get(relation_id)
         if relationship is None:
-            issues.append(LinkIntegrityIssue("MISSING_RELATIONSHIP", "ERROR", part, "relationship", "参照先のリレーションがありません。", relation_id))
+            issues.append(
+                LinkIntegrityIssue(
+                    "MISSING_RELATIONSHIP",
+                    "ERROR",
+                    part,
+                    "relationship",
+                    "参照先のリレーションがありません。",
+                    relation_id,
+                )
+            )
             return
         target = relationship.get("Target", "")
         if relationship.get("TargetMode") == "External":
             return
         resolved_target = self._resolve_internal_target(part, target)
         if resolved_target is None:
-            issues.append(LinkIntegrityIssue("INVALID_INTERNAL_TARGET", "ERROR", part, "relationship", "パッケージ外を参照するTargetです。", relation_id, target))
+            issues.append(
+                LinkIntegrityIssue(
+                    "INVALID_INTERNAL_TARGET",
+                    "ERROR",
+                    part,
+                    "relationship",
+                    "パッケージ外を参照するTargetです。",
+                    relation_id,
+                    target,
+                )
+            )
         elif resolved_target not in package_files:
-            issues.append(LinkIntegrityIssue("MISSING_PACKAGE_TARGET", "ERROR", part, "relationship", "ZIP内に参照先がありません。", relation_id, resolved_target))
+            issues.append(
+                LinkIntegrityIssue(
+                    "MISSING_PACKAGE_TARGET",
+                    "ERROR",
+                    part,
+                    "relationship",
+                    "ZIP内に参照先がありません。",
+                    relation_id,
+                    resolved_target,
+                )
+            )
 
     @staticmethod
     def _resolve_internal_target(part: str, target: str) -> str | None:

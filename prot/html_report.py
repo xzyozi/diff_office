@@ -1,13 +1,14 @@
-import os
 import html
+import os
 from datetime import datetime
+
 
 def generate_html_report(file1_path, file2_path, diff_data, added_sheets, deleted_sheets, output_dir):
     """
     差分データとシート構成の変更から直感的なHTMLレポートを生成する
     """
     os.makedirs(output_dir, exist_ok=True)
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     f1_name = os.path.basename(file1_path)
     f2_name = os.path.basename(file2_path)
@@ -93,7 +94,7 @@ def generate_html_report(file1_path, file2_path, diff_data, added_sheets, delete
             html_content += f'<span class="sheet-badge badge-del">[-] 削除されたシート: {html.escape(s)}</span>\n'
         for s in added_sheets:
             html_content += f'<span class="sheet-badge badge-add">[+] 追加されたシート: {html.escape(s)}</span>\n'
-        
+
         html_content += """
             </div>
         </div>
@@ -103,7 +104,7 @@ def generate_html_report(file1_path, file2_path, diff_data, added_sheets, delete
     for sheet_name, diffs in diff_data.items():
         if not diffs:
             continue
-            
+
         html_content += f"""
         <div class="sheet-section">
             <div class="sheet-title">📄 シート: {html.escape(sheet_name)} ({len(diffs)} 件の差分)</div>
@@ -118,14 +119,14 @@ def generate_html_report(file1_path, file2_path, diff_data, added_sheets, delete
                 <tbody>
 """
         for d in diffs:
-            c_id = html.escape(d['cell'])
-            v1 = html.escape(d['v1']) if d['v1'] else '<空>'
-            v2 = html.escape(d['v2']) if d['v2'] else '<空>'
-            f1 = html.escape(d['f1']) if d['f1'] else '<空>'
-            f2 = html.escape(d['f2']) if d['f2'] else '<空>'
+            c_id = html.escape(d["cell"])
+            v1 = html.escape(d["v1"]) if d["v1"] else "<空>"
+            v2 = html.escape(d["v2"]) if d["v2"] else "<空>"
+            f1 = html.escape(d["f1"]) if d["f1"] else "<空>"
+            f2 = html.escape(d["f2"]) if d["f2"] else "<空>"
 
             val_html = ""
-            if d['v1'] != d['v2']:
+            if d["v1"] != d["v2"]:
                 val_html = f"""
                     <div class="diff-old tooltip">{v1}<span class="tooltiptext">File 1 (Old) の値</span></div>
                     <div class="diff-new tooltip">{v2}<span class="tooltiptext">File 2 (New) の値</span></div>
@@ -134,13 +135,17 @@ def generate_html_report(file1_path, file2_path, diff_data, added_sheets, delete
                 val_html = f'<span class="diff-none">変更なし ({v1})</span>'
 
             fml_html = ""
-            if d['f1'] != d['f2']:
+            if d["f1"] != d["f2"]:
                 fml_html = f"""
                     <div class="diff-old tooltip">{f1}<span class="tooltiptext">File 1 (Old) の数式</span></div>
                     <div class="diff-new tooltip">{f2}<span class="tooltiptext">File 2 (New) の数式</span></div>
                 """
             else:
-                fml_html = '<span class="diff-none">変更なし</span>' if not d['f1'] else f'<span class="diff-none">変更なし ({f1})</span>'
+                fml_html = (
+                    '<span class="diff-none">変更なし</span>'
+                    if not d["f1"]
+                    else f'<span class="diff-none">変更なし ({f1})</span>'
+                )
 
             html_content += f"""
                     <tr>
@@ -149,7 +154,7 @@ def generate_html_report(file1_path, file2_path, diff_data, added_sheets, delete
                         <td>{fml_html}</td>
                     </tr>
 """
-        
+
         html_content += """
                 </tbody>
             </table>
@@ -162,7 +167,7 @@ def generate_html_report(file1_path, file2_path, diff_data, added_sheets, delete
 </html>
 """
 
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write(html_content)
-        
+
     return output_path
