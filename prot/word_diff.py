@@ -216,11 +216,11 @@ class WinMergeStyleApp:
             self.link_detail_button.config(state=tk.NORMAL)
 
         self.link_status_text.set(text)
-        self.link_status_frame.config(bg=background)
+        self.link_status_frame.config(background=background)
         self.link_status_label.config(background=background, foreground=foreground)
         for child in self.link_status_frame.winfo_children():
             if child is not self.link_status_label and child is not self.link_detail_button:
-                child.config(bg=background)
+                child.config(background=background)
 
     def show_link_validation_details(self) -> None:
         if not self.link_validation_issues:
@@ -274,6 +274,7 @@ class WinMergeStyleApp:
             self.text_left.yview_scroll(int(-1 * (event.delta / 120)), "units")
             self.text_right.yview_scroll(int(-1 * (event.delta / 120)), "units")
             return "break"
+        return None
 
     def select_file(self, var: tk.StringVar) -> None:
         path = filedialog.askopenfilename(filetypes=[("Word files", "*.docx *.docm")])
