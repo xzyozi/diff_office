@@ -36,11 +36,17 @@ jobs:
           uv run ruff format --check .
 
       - name: Run Mypy (Type Check)
-        if: ${{ hashFiles('**/*.py', '**/*.pyi') != '' }}
         run: |
-          uv run mypy .
+          if [ -z "$(git ls-files -- '*.py' '*.pyi')" ]; then
+            echo "No Python files found; skipping Mypy."
+            exit 0
+          fi
+          git ls-files -z -- '*.py' '*.pyi' | xargs -0 uv run mypy
 
       - name: Run Pytest
-        if: ${{ hashFiles('**/test_*.py') != '' }}
         run: |
-          uv run pytest
+          if [ -z "$(git ls-files -- 'test_*.py')" ]; then
+            echo "No test files found; skipping Pytest."
+            exit 0
+          fi
+          git ls-files -z -- 'test_*.py' | xargs -0 uv run pytest
