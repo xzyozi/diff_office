@@ -36,9 +36,11 @@ jobs:
           uv run ruff format --check .
 
       - name: Run Mypy (Type Check)
+        if: ${{ hashFiles('**/*.py', '**/*.pyi') != '' }}
         run: |
           uv run mypy .
 
       - name: Run Pytest
+        if: ${{ hashFiles('**/test_*.py') != '' }}
         run: |
           uv run pytest
