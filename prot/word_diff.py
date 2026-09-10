@@ -21,55 +21,60 @@ class WordParser:
             except Exception as e:
                 messagebox.showerror("解析エラー", f"{filepath} の読み込みに失敗しました:\n{e}")
 
+    def _extract_paragraph_text(self, paragraph):
+        texts = []
+        in_field_result = False
+        namespace = self.NS['w']
+        field_simple_tag = f"{{{namespace}}}fldSimple"
+        field_character_tag = f"{{{namespace}}}fldChar"
+        field_character_type = f"{{{namespace}}}fldCharType"
+        run_tag = f"{{{namespace}}}r"
+        text_tag = f"{{{namespace}}}t"
+
+        def visit(element):
+            nonlocal in_field_result
+
+            for child in element:
+                if child.tag == field_simple_tag:
+                    continue
+                if child.tag == run_tag:
+                    for run_child in child:
+                        if run_child.tag == field_character_tag:
+                            field_type = run_child.get(field_character_type)
+                            if field_type == 'separate':
+                                in_field_result = True
+                            elif field_type == 'end':
+                                in_field_result = False
+                        elif run_child.tag == text_tag and not in_field_result and run_child.text:
+                            texts.append(run_child.text)
+                else:
+                    visit(child)
+
+        visit(paragraph)
+        return "".join(texts).rstrip()
+
     def _load_document(self):
         if not zipfile.is_zipfile(self.filepath):
             raise ValueError("有効なZIP(Office)ファイルではありません。")
 
         with zipfile.ZipFile(self.filepath, 'r') as z:
-            if 'word/document.xml' in z.namelist():
-                with z.open('word/document.xml') as f:
-                    tree = ET.parse(f)
-                    
-                    for p in tree.findall('.//w:p', self.NS):
-                        # --- フィルター①: 目次 (TOC) のスキップ ---
-                        # 段落スタイルを取得し、目次関連のスタイルなら段落ごと無視する
-                        style_node = p.find('.//w:pStyle', self.NS)
-                        if style_node is not None:
-                            style_val = style_node.get(f"{{{self.NS['w']}}}val", "").lower()
-                            # 内部スタイル名が 'toc1'〜'toc9' 等、または名前に '目次' を含む場合
-                            if style_val.startswith('toc') or '目次' in style_val:
-                                continue
-
-                        texts = []
-                        in_field_result = False # フィールドの自動更新結果エリア内かどうかのフラグ
-
-                        # --- フィルター②: フィールド情報 (自動更新値) のスキップ ---
-                        for run in p.findall('.//w:r', self.NS):
-                            # run (文字列の書式単位) の中の要素を順番に走査
-                            for child in run:
-                                # fldChar (フィールド制御文字) を見つけた場合、状態を切り替える
-                                if child.tag == f"{{{self.NS['w']}}}fldChar":
-                                    fld_type = child.get(f"{{{self.NS['w']}}}fldCharType")
-                                    if fld_type == 'separate':
-                                        # separate 以降のテキストは「自動生成された結果（表示値）」なので抽出をストップ
-                                        in_field_result = True
-                                    elif fld_type == 'end':
-                                        # end が来たらフィールド領域終了。抽出を再開
-                                        in_field_result = False
-                                        
-                                # 通常のテキスト (t) の場合、フィールド結果領域でなければ抽出
-                                elif child.tag == f"{{{self.NS['w']}}}t":
-                                    if not in_field_result and child.text:
-                                        texts.append(child.text)
-
-                        # 抽出したテキストを結合し、末尾の空白や改行を削除
-                        text_content = "".join(texts).rstrip()
-                        
-                        # 空行も文書の構造として保持するが、
-                        # 目次等を除外した結果であれば、そのまま配列に積む
-                        self.paragraphs.append(text_content)
-            else:
+            if 'word/document.xml' not in z.namelist():
                 raise ValueError("文書本体 (word/document.xml) が見つかりません。")
+
+            with z.open('word/document.xml') as f:
+                tree = ET.parse(f)
+                body = tree.find('./w:body', self.NS)
+                if body is None:
+                    raise ValueError("文書本体 (w:body) が見つかりません。")
+
+                for paragraph in body.findall('./w:p', self.NS):
+                    style_node = paragraph.find('.//w:pStyle', self.NS)
+                    if style_node is not None:
+                        style_value = style_node.get(f"{{{self.NS['w']}}}val", "").lower()
+                        if style_value.startswith('toc') or '目次' in style_value:
+                            continue
+
+                    self.paragraphs.append(self._extract_paragraph_text(paragraph))
 
 class WinMergeStyleApp:
     def __init__(self, root):
