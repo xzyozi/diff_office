@@ -4,11 +4,12 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import xml.etree.ElementTree as ET
 import zipfile
+from typing import Any
 
 try:
-    from .word_link_validator import validate_word_links
+    from .word_link_validator import LinkIntegrityIssue, LinkIntegrityResult, validate_word_links
 except ImportError:
-    from word_link_validator import validate_word_links
+    from word_link_validator import LinkIntegrityIssue, LinkIntegrityResult, validate_word_links
 
 
 class WordParser:
@@ -16,9 +17,9 @@ class WordParser:
 
     NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 
-    def __init__(self, filepath):
+    def __init__(self, filepath: str) -> None:
         self.filepath = filepath
-        self.paragraphs = []
+        self.paragraphs: list[str] = []
         self.valid = False
 
         if os.path.exists(filepath):
@@ -28,8 +29,8 @@ class WordParser:
             except Exception as e:
                 messagebox.showerror("解析エラー", f"{filepath} の読み込みに失敗しました:\n{e}")
 
-    def _extract_paragraph_text(self, paragraph):
-        texts = []
+    def _extract_paragraph_text(self, paragraph: ET.Element) -> str:
+        texts: list[str] = []
         in_field_result = False
         namespace = self.NS["w"]
         field_simple_tag = f"{{{namespace}}}fldSimple"
@@ -38,7 +39,7 @@ class WordParser:
         run_tag = f"{{{namespace}}}r"
         text_tag = f"{{{namespace}}}t"
 
-        def visit(element):
+        def visit(element: ET.Element) -> None:
             nonlocal in_field_result
 
             for child in element:
@@ -60,7 +61,7 @@ class WordParser:
         visit(paragraph)
         return "".join(texts).rstrip()
 
-    def _load_document(self):
+    def _load_document(self) -> None:
         if not zipfile.is_zipfile(self.filepath):
             raise ValueError("有効なZIP(Office)ファイルではありません。")
 
@@ -85,7 +86,7 @@ class WordParser:
 
 
 class WinMergeStyleApp:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Word Document Diff (WinMerge Style)")
         self.root.geometry("1200x760")
@@ -135,10 +136,10 @@ class WinMergeStyleApp:
         self.btn_next.pack(side=tk.LEFT, padx=2)
 
         # 差分ジャンプ用の状態管理
-        self.diff_positions = []  # [GUI論理行番号, ...]
+        self.diff_positions: list[int] = []  # [GUI論理行番号, ...]
         self.current_diff_idx = -1
 
-        self.link_validation_issues = []
+        self.link_validation_issues: list[tuple[str, LinkIntegrityIssue]] = []
         self.link_status_frame = tk.Frame(root, bd=1, relief=tk.SOLID, bg="#f8fafc")
         self.link_status_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
         self.link_status_text = tk.StringVar(value="リンク整合性: 未確認")
@@ -194,7 +195,7 @@ class WinMergeStyleApp:
         self.text_left.tag_configure("empty", background="#f0f0f0")
         self.text_right.tag_configure("empty", background="#f0f0f0")
 
-    def _update_link_validation(self, results):
+    def _update_link_validation(self, results: list[tuple[str, LinkIntegrityResult]]) -> None:
         self.link_validation_issues = [
             (document_label, issue) for document_label, result in results for issue in result.issues
         ]
@@ -216,12 +217,12 @@ class WinMergeStyleApp:
 
         self.link_status_text.set(text)
         self.link_status_frame.config(bg=background)
-        self.link_status_label.config(bg=background, fg=foreground)
+        self.link_status_label.config(background=background, foreground=foreground)
         for child in self.link_status_frame.winfo_children():
             if child is not self.link_status_label and child is not self.link_detail_button:
                 child.config(bg=background)
 
-    def show_link_validation_details(self):
+    def show_link_validation_details(self) -> None:
         if not self.link_validation_issues:
             return
 
@@ -244,37 +245,37 @@ class WinMergeStyleApp:
     # ==========================================
     # スクロール制御
     # ==========================================
-    def on_scroll_left(self, *args):
+    def on_scroll_left(self, *args: Any) -> None:
         self.text_left.yview(*args)
         if self.sync_scroll_var.get():
             self.text_right.yview(*args)
 
-    def on_scroll_right(self, *args):
+    def on_scroll_right(self, *args: Any) -> None:
         self.text_right.yview(*args)
         if self.sync_scroll_var.get():
             self.text_left.yview(*args)
 
-    def set_scroll_left(self, *args):
+    def set_scroll_left(self, *args: Any) -> None:
         self.scroll_left.set(*args)
         if self.sync_scroll_var.get() and not self._syncing:
             self._syncing = True
             self.text_right.yview_moveto(args[0])
             self._syncing = False
 
-    def set_scroll_right(self, *args):
+    def set_scroll_right(self, *args: Any) -> None:
         self.scroll_right.set(*args)
         if self.sync_scroll_var.get() and not self._syncing:
             self._syncing = True
             self.text_left.yview_moveto(args[0])
             self._syncing = False
 
-    def sync_mousewheel(self, event):
+    def sync_mousewheel(self, event: Any) -> str | None:
         if self.sync_scroll_var.get():
             self.text_left.yview_scroll(int(-1 * (event.delta / 120)), "units")
             self.text_right.yview_scroll(int(-1 * (event.delta / 120)), "units")
             return "break"
 
-    def select_file(self, var):
+    def select_file(self, var: tk.StringVar) -> None:
         path = filedialog.askopenfilename(filetypes=[("Word files", "*.docx *.docm")])
         if path:
             var.set(path)
@@ -282,13 +283,13 @@ class WinMergeStyleApp:
     # ==========================================
     # 差分ジャンプナビゲーション制御
     # ==========================================
-    def prev_diff(self):
+    def prev_diff(self) -> None:
         self.jump_to_diff(self.current_diff_idx - 1)
 
-    def next_diff(self):
+    def next_diff(self) -> None:
         self.jump_to_diff(self.current_diff_idx + 1)
 
-    def jump_to_specified_diff(self, event=None):
+    def jump_to_specified_diff(self, event: Any = None) -> None:
         if not self.diff_positions:
             return
         try:
@@ -297,7 +298,7 @@ class WinMergeStyleApp:
         except ValueError:
             self._update_counter_display()
 
-    def jump_to_diff(self, index):
+    def jump_to_diff(self, index: int) -> None:
         if not self.diff_positions:
             return
 
@@ -317,14 +318,14 @@ class WinMergeStyleApp:
         self._update_counter_display()
         self.sync_scroll_var.set(sync_state)
 
-    def _update_counter_display(self):
+    def _update_counter_display(self) -> None:
         self.entry_diff_num.delete(0, tk.END)
         self.entry_diff_num.insert(0, str(self.current_diff_idx + 1))
 
     # ==========================================
     # 差分比較実行メソッド
     # ==========================================
-    def run_diff(self):
+    def run_diff(self) -> None:
         p1, p2 = self.path1.get(), self.path2.get()
         if not p1 or not p2:
             messagebox.showwarning("警告", "比較する2つのファイルを選択してください。")
@@ -368,11 +369,11 @@ class WinMergeStyleApp:
         r_line = 1
         ui_line = 1
 
-        all_left_text = []
-        all_right_text = []
+        all_left_text: list[str] = []
+        all_right_text: list[str] = []
 
-        tags_left = {"replace": [], "delete": [], "empty": []}
-        tags_right = {"replace": [], "insert": [], "empty": []}
+        tags_left: dict[str, list[int]] = {"replace": [], "delete": [], "empty": []}
+        tags_right: dict[str, list[int]] = {"replace": [], "insert": [], "empty": []}
 
         for tag, i1, i2, j1, j2 in opcodes:
             p1_sub = paras1[i1:i2]

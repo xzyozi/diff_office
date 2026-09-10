@@ -3,7 +3,14 @@ import html
 import os
 
 
-def generate_html_report(file1_path, file2_path, diff_data, added_sheets, deleted_sheets, output_dir):
+def generate_html_report(
+    file1_path: str,
+    file2_path: str,
+    diff_data: dict[str, list[dict[str, str]]],
+    added_sheets: set[str],
+    deleted_sheets: set[str],
+    output_dir: str,
+) -> str:
     """
     差分データとシート構成の変更から直感的なHTMLレポートを生成する
     """

@@ -16,12 +16,12 @@ class ExcelParser:
     NS_RELS = {"rels": "http://schemas.openxmlformats.org/package/2006/relationships"}
     NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
-    def __init__(self, filepath):
+    def __init__(self, filepath: str) -> None:
         self.filepath = filepath
-        self.shared_strings = []
-        self.sheet_mapping = {}
+        self.shared_strings: list[str] = []
+        self.sheet_mapping: dict[str, str] = {}
         self.has_macro = False
-        self.macro_hash = None
+        self.macro_hash: str | None = None
         self.valid = False
 
         if os.path.exists(filepath):
@@ -31,7 +31,7 @@ class ExcelParser:
             except Exception as e:
                 messagebox.showerror("解析エラー", f"{filepath} のメタデータ読み込みに失敗しました:\n{e}")
 
-    def _load_metadata(self):
+    def _load_metadata(self) -> None:
         with zipfile.ZipFile(self.filepath, "r") as z:
             # 1. 共有文字列の読み込み
             if "xl/sharedStrings.xml" in z.namelist():
@@ -58,7 +58,7 @@ class ExcelParser:
                         self.shared_strings.append("".join(text_parts))
 
             # 2. シート名とXMLファイルパスの紐付け
-            sheet_rids = {}
+            sheet_rids: dict[str, str] = {}
             if "xl/workbook.xml" in z.namelist():
                 with z.open("xl/workbook.xml") as f:
                     tree = ET.parse(f)
@@ -75,6 +75,8 @@ class ExcelParser:
                         r_id = rel.get("Id")
                         if r_id in sheet_rids:
                             target = rel.get("Target")
+                            if target is None:
+                                continue
                             path = target if target.startswith("xl/") else f"xl/{target}"
                             if path.startswith("/"):
                                 path = path[1:]
@@ -86,12 +88,12 @@ class ExcelParser:
                 with z.open("xl/vbaProject.bin") as f:
                     self.macro_hash = hashlib.md5(f.read()).hexdigest()
 
-    def get_sheet_data(self, sheet_name):
+    def get_sheet_data(self, sheet_name: str) -> dict[str, dict[str, str]]:
         if sheet_name not in self.sheet_mapping:
             return {}
 
         path = self.sheet_mapping[sheet_name]
-        data = {}
+        data: dict[str, dict[str, str]] = {}
         with zipfile.ZipFile(self.filepath, "r") as z:
             if path in z.namelist():
                 with z.open(path) as f:
@@ -101,7 +103,10 @@ class ExcelParser:
                         c_type = cell.get("t")
 
                         formula = cell.find("ns:f", self.NS_MAIN)
-                        formula_text = formula.text if formula is not None else ""
+                        formula_text = formula.text if formula is not None and formula.text is not None else ""
+
+                        if addr is None:
+                            continue
 
                         value_node = cell.find("ns:v", self.NS_MAIN)
                         value = ""
@@ -119,7 +124,7 @@ class ExcelParser:
 
 
 class DiffApp:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk) -> None:
         root.title("Excel XML Diff Tool (with HTML Report)")
         root.geometry("900x500")
 
@@ -149,12 +154,12 @@ class DiffApp:
         self.tree.column("Cell", width=50)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-    def select_file(self, var):
+    def select_file(self, var: tk.StringVar) -> None:
         path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xlsm")])
         if path:
             var.set(path)
 
-    def run_diff(self):
+    def run_diff(self) -> None:
         for i in self.tree.get_children():
             self.tree.delete(i)
 
@@ -191,7 +196,7 @@ class DiffApp:
             return
 
         diff_count = 0
-        report_data = {}
+        report_data: dict[str, list[dict[str, str]]] = {}
 
         # --- 追加・削除されたシートのGUI表示 ---
         for sheet in sorted(list(deleted_sheets)):
