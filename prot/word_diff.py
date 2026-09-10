@@ -2,9 +2,9 @@ import difflib
 import os
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from typing import Any
 import xml.etree.ElementTree as ET
 import zipfile
-from typing import Any
 
 try:
     from .word_link_validator import LinkIntegrityIssue, LinkIntegrityResult, validate_word_links
