@@ -1,6 +1,6 @@
+from datetime import datetime
 import html
 import os
-from datetime import datetime
 
 
 def generate_html_report(file1_path, file2_path, diff_data, added_sheets, deleted_sheets, output_dir):
@@ -10,8 +10,6 @@ def generate_html_report(file1_path, file2_path, diff_data, added_sheets, delete
     os.makedirs(output_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    f1_name = os.path.basename(file1_path)
-    f2_name = os.path.basename(file2_path)
     output_filename = f"diff_report_{timestamp}.html"
     output_path = os.path.join(output_dir, output_filename)
 
