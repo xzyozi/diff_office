@@ -1,7 +1,7 @@
 ---
 title: "Word差分処理詳細"
 document_type: "implementation_detailed_design"
-version: "1.2"
+version: "1.3"
 created_at: "2026-09-10"
 updated_at: "2026-09-10"
 author: "xzyozi"
@@ -64,3 +64,4 @@ sequenceDiagram
 | Rev.1.0 | 2026-09-10 | xzyozi | Word差分処理の実装済み動作を記録               |
 | Rev.1.1 | 2026-09-10 | xzyozi | 本文段落への対象限定と単純フィールド除外を反映 |
 | Rev.1.2 | 2026-09-10 | xzyozi | 現行GUIの構成イメージを追加                    |
+| Rev.1.3 | 2026-09-10 | xzyozi | リンク整合性バーを含むGUIイメージへ更新        |
